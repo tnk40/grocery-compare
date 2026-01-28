@@ -17,13 +17,7 @@ https://tnk40.github.io/grocery-compare-frontend/
 
 - **Frontend**: HTML, CSS, JavaScript (GitHub Pages)
 - **Backend**: Python FastAPI (Railway)
-- **Database**: PostgreSQL
-
-## Project Structure
-
-├── frontend/ │ ├── index.html │ ├── style.css │ └── script.js └── backend/ ├── main.py ├── requirements.txt └── uk_grocery_prices.csv
-
-## Links
+- **Database**: PostgreSQL## Links
 
 - [Live App](https://tnk40.github.io/grocery-compare-frontend/)
 - [API Docs](https://backend-production-5565.up.railway.app/docs)
