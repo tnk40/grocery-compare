@@ -4,7 +4,7 @@ Compare grocery prices across UK supermarkets to find the cheapest place to shop
 
 ## Live Site
 
-https://tnk40.github.io/grocery-compare-frontend/
+https://tnk40.github.io/grocery-compare/
 
 ## Features
 
