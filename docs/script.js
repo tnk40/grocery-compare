@@ -5,6 +5,7 @@ let token = localStorage.getItem('token');
 let basket = [];
 let preferredStore = localStorage.getItem('preferredStore') || '';
 let switchThreshold = parseInt(localStorage.getItem('switchThreshold') || '15');
+let stickToStore = localStorage.getItem('stickToStore') === 'true';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatStoreName(store) {
@@ -88,6 +89,11 @@ async function showMainApp() {
         document.getElementById('threshold-label').textContent = `${switchThreshold}%`;
     }
 
+    // Restore stick-to-store toggle
+    const stickToggle = document.getElementById('stick-to-store');
+    if (stickToggle) stickToggle.checked = stickToStore;
+    applyStickToStoreUI();
+
     // Enter key → smart match
     document.getElementById('search-input').addEventListener('keypress', e => {
         if (e.key === 'Enter') smartMatch();
@@ -126,6 +132,20 @@ function updateSwitchThreshold(value) {
     calculatePrices();
 }
 
+function updateStickToStore(checked) {
+    stickToStore = checked;
+    localStorage.setItem('stickToStore', checked ? 'true' : 'false');
+    applyStickToStoreUI();
+    calculatePrices();
+}
+
+function applyStickToStoreUI() {
+    const slider = document.getElementById('threshold-slider');
+    const sliderPref = document.querySelector('.pref-slider');
+    if (slider) slider.disabled = stickToStore;
+    if (sliderPref) sliderPref.style.opacity = stickToStore ? '0.4' : '';
+}
+
 // ── Search helpers ────────────────────────────────────────────────────────────
 function showSearchStatus(msg) {
     const el = document.getElementById('search-results');
@@ -149,7 +169,8 @@ async function smartMatch() {
     showSearchStatus('Matching…');
 
     try {
-        const res = await fetch(`${API_URL}/match-best?q=${encodeURIComponent(query)}`);
+        const storeFilter = stickToStore && preferredStore ? `&store=${encodeURIComponent(preferredStore)}` : '';
+        const res = await fetch(`${API_URL}/match-best?q=${encodeURIComponent(query)}${storeFilter}`);
         const products = await res.json();
 
         if (!products.length) {
@@ -273,10 +294,13 @@ function renderBasket() {
         tfoot.style.display = '';
         document.getElementById('basket-total-value').textContent = `\u00a3${basketTotal.toFixed(2)}`;
     }
+    updateSyncStoreOptions();
+    const syncBar = document.getElementById('sync-store-bar');
+    if (syncBar) syncBar.style.display = basket.length ? '' : 'none';
 }
 
 // ── Match Alternatives ────────────────────────────────────────────────────────
-function showMatchAlternatives(basketIndex) {
+async function showMatchAlternatives(basketIndex) {
     const item = basket[basketIndex];
     if (item.type !== 'matched') {
         showSubstitutes(item.name, item.store);
@@ -286,16 +310,21 @@ function showMatchAlternatives(basketIndex) {
     const overlay = document.getElementById('substitutes-overlay');
     const content = document.getElementById('substitutes-content');
     panel.querySelector('.sub-panel-header h3').textContent = 'Store Alternatives';
+
+    // Open immediately with store alternatives from cached products
     content.innerHTML = '';
+    panel.classList.add('open');
+    overlay.classList.add('open');
 
     const confident = item.products.filter(p => p.confident || p.similarity >= 0.85);
     const pool = confident.length ? confident : item.products;
     const sorted = [...pool].sort((a, b) => a.price - b.price);
 
-    const ctx = document.createElement('p');
-    ctx.className = 'sub-context';
-    ctx.innerHTML = `Stores stocking <strong>${item.name_clean}</strong>`;
-    content.appendChild(ctx);
+    // Section 1: same product at each store
+    const storesCtx = document.createElement('p');
+    storesCtx.className = 'sub-context';
+    storesCtx.innerHTML = `Same product at other stores`;
+    content.appendChild(storesCtx);
 
     sorted.forEach(p => {
         const isSelected = item.selectedProduct?.store === p.store;
@@ -319,8 +348,62 @@ function showMatchAlternatives(basketIndex) {
         content.appendChild(div);
     });
 
-    panel.classList.add('open');
-    overlay.classList.add('open');
+    // Section 2: cheaper substitute products from API
+    const subsCtx = document.createElement('p');
+    subsCtx.className = 'sub-context alt-section';
+    subsCtx.textContent = 'Cheaper alternatives';
+    content.appendChild(subsCtx);
+
+    const loadingEl = document.createElement('p');
+    loadingEl.className = 'search-status';
+    loadingEl.textContent = 'Loading\u2026';
+    content.appendChild(loadingEl);
+
+    const refProduct = item.selectedProduct || sorted[0];
+    try {
+        const res = await fetch(
+            `${API_URL}/substitutes?product=${encodeURIComponent(refProduct.name)}&store=${encodeURIComponent(refProduct.store)}&top_k=5`
+        );
+        const subs = await res.json();
+        loadingEl.remove();
+        if (!subs.length) {
+            const none = document.createElement('p');
+            none.className = 'search-status';
+            none.textContent = 'No cheaper alternatives found.';
+            content.appendChild(none);
+        } else {
+            subs.forEach(s => {
+                const div = document.createElement('div');
+                div.className = 'sub-item';
+                div.innerHTML = `
+                    <div class="sub-info">
+                        <div>
+                            <div class="sub-name">${s.substitute_name}</div>
+                            <div class="sub-store">${formatStoreName(s.substitute_store)}</div>
+                        </div>
+                        <div class="sub-pricing">
+                            <div class="sub-price">\u00a3${s.substitute_price.toFixed(2)}</div>
+                            <div class="sub-saving">Save \u00a3${s.saving.toFixed(2)} (${s.saving_pct.toFixed(0)}%)</div>
+                        </div>
+                    </div>`;
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-small btn-outline swap-btn';
+                btn.textContent = 'Swap';
+                const subProduct = {
+                    name: s.substitute_name,
+                    store: s.substitute_store,
+                    price: s.substitute_price,
+                    similarity: s.cosine_similarity || 0,
+                    confident: false
+                };
+                btn.onclick = (e) => { e.stopPropagation(); swapBasketItem(basketIndex, subProduct); };
+                div.querySelector('.sub-pricing').appendChild(btn);
+                content.appendChild(div);
+            });
+        }
+    } catch {
+        loadingEl.textContent = 'Could not load cheaper alternatives.';
+    }
 }
 
 function swapBasketItem(basketIndex, product) {
@@ -328,6 +411,66 @@ function swapBasketItem(basketIndex, product) {
     closeSubstitutesPanel();
     renderBasket();
     calculatePrices();
+}
+
+function updateSyncStoreOptions() {
+    const select = document.getElementById('sync-store-select');
+    if (!select) return;
+    const stores = new Set();
+    basket.forEach(item => {
+        if (item.type === 'matched') item.products.forEach(p => stores.add(p.store));
+        else if (item.store) stores.add(item.store);
+    });
+    const current = select.value;
+    select.innerHTML = '<option value="">Auto-pick</option>' +
+        [...stores].sort().map(s => `<option value="${s}"${s === current ? ' selected' : ''}>${formatStoreName(s)}</option>`).join('');
+}
+
+function syncToOneStore(storeOverride) {
+    if (!basket.length) return;
+    let targetStore = storeOverride;
+    if (!targetStore) {
+        const selectEl = document.getElementById('sync-store-select');
+        targetStore = selectEl ? selectEl.value : '';
+    }
+    if (!targetStore) {
+        // Auto-detect: store whose cheapest product appears most across basket items
+        const storeCounts = {};
+        basket.forEach(item => {
+            if (item.type !== 'matched') return;
+            const conf = item.products.filter(p => p.confident || p.similarity >= 0.85);
+            const pool = conf.length ? conf : item.products;
+            if (!pool.length) return;
+            const cheapest = pool.reduce((min, p) => p.price < min.price ? p : min);
+            storeCounts[cheapest.store] = (storeCounts[cheapest.store] || 0) + 1;
+        });
+        const best = Object.entries(storeCounts).sort((a, b) => b[1] - a[1])[0];
+        targetStore = best ? best[0] : '';
+        if (!targetStore) return;
+    }
+
+    let synced = 0, skipped = 0;
+    basket.forEach(item => {
+        if (item.type !== 'matched') return;
+        const storeProduct = item.products.find(p => p.store === targetStore);
+        if (storeProduct) {
+            item.selectedProduct = storeProduct;
+            synced++;
+        } else {
+            skipped++;
+        }
+    });
+
+    renderBasket();
+    calculatePrices();
+
+    const msg = document.getElementById('sync-message');
+    if (msg) {
+        let text = `Synced to ${formatStoreName(targetStore)}`;
+        if (skipped) text += ` · ${skipped} item${skipped > 1 ? 's' : ''} unavailable, kept as-is`;
+        msg.textContent = text;
+        setTimeout(() => { msg.textContent = ''; }, 4000);
+    }
 }
 
 // ── Price Calculation ─────────────────────────────────────────────────────────
@@ -348,8 +491,15 @@ function calculatePrices() {
 
     basket.forEach(item => {
         if (item.type === 'matched') {
-            const confident = item.products.filter(p => p.confident || p.similarity >= 0.85);
-            const pool = confident.length ? confident : item.products;
+            const activeProducts = (stickToStore && preferredStore)
+                ? item.products.filter(p => p.store === preferredStore)
+                : item.products;
+            if (!activeProducts.length) {
+                cheapestOptions.push({ label: item.name_clean, store: preferredStore, price: 0, uncertain: true });
+                return;
+            }
+            const confident = activeProducts.filter(p => p.confident || p.similarity >= 0.85);
+            const pool = confident.length ? confident : activeProducts;
             const cheapest = pool.reduce((min, p) => p.price < min.price ? p : min);
             cheapestOptions.push({
                 label: item.name_clean,
@@ -358,8 +508,8 @@ function calculatePrices() {
                 uncertain: !confident.length
             });
 
-            // Per-store: each product in products is one store's best match
-            item.products.forEach(p => {
+            // Per-store: each product in activeProducts is one store's best match
+            activeProducts.forEach(p => {
                 if (!storeData[p.store]) storeData[p.store] = { total: 0, items: [], unavailableCount: 0 };
                 const isConfident = p.confident || p.similarity >= 0.85;
                 if (isConfident) {

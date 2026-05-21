@@ -271,33 +271,32 @@ from fastapi import Query as QueryParam
 
 
 @app.get("/match-best")
-def match_best_product(q: str = QueryParam(..., min_length=1)):
+def match_best_product(q: str = QueryParam(..., min_length=1), store: str = None):
     """
-    Find the single best matching product group for a query.
-    Returns one entry per store for the best-matching product, selected by
-    store coverage then average similarity. Used by the Match button.
+    Returns the single best match per store for a query.
+    If 'store' is provided, returns only the best match from that store.
+    matcher_match returns results sorted by similarity descending, so the
+    first result seen for each store is already its best match.
+    Includes results with similarity >= 0.5 so all relevant stores appear.
     """
-    results = matcher_match(q, top_k=30)
+    results = matcher_match(q, top_k=50)
     if not results:
         return []
 
-    confident = [r for r in results if r.get('confident', False)]
-    if not confident:
-        confident = results[:5]
+    if store:
+        for r in results:
+            if r['store'] == store and (r.get('confident', False) or r['similarity'] >= 0.5):
+                return [r]
+        return []
 
-    groups = {}
-    for r in confident:
-        key = r['name_clean']
-        if key not in groups:
-            groups[key] = []
-        groups[key].append(r)
+    best_per_store = {}
+    for r in results:
+        s = r['store']
+        if s not in best_per_store:
+            if r.get('confident', False) or r['similarity'] >= 0.5:
+                best_per_store[s] = r
 
-    best_key = max(groups.keys(), key=lambda k: (
-        len(groups[k]),
-        sum(r['similarity'] for r in groups[k]) / len(groups[k])
-    ))
-
-    return groups[best_key]
+    return list(best_per_store.values())
 
 
 @app.get("/match", response_model=List[MatchResult])

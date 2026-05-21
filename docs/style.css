@@ -320,6 +320,73 @@ input[type="range"] {
     min-width: 34px;
 }
 
+/* ── Stick-to-store toggle ── */
+.pref-toggle {
+    justify-content: center;
+}
+
+.stick-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+    position: relative;
+    padding-left: 46px;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.stick-label input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.stick-switch {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 38px;
+    height: 22px;
+    background: var(--border);
+    border-radius: 22px;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+
+.stick-switch::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 3px;
+    width: 16px;
+    height: 16px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
+}
+
+.stick-label input:checked~.stick-switch {
+    background: var(--primary);
+}
+
+.stick-label input:checked~.stick-switch::after {
+    transform: translateX(16px);
+}
+
+input[type="range"]:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 /* ── Search ── */
 .search-bar {
     display: flex;
@@ -542,6 +609,32 @@ tr:hover td {
     border-radius: 8px;
     font-size: 14px;
     font-family: inherit;
+}
+
+/* ── Sync-to-store bar ── */
+.sync-store-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.sync-store-bar select {
+    padding: 8px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+}
+
+.sync-message {
+    font-size: 13px;
+    color: var(--primary);
+    font-weight: 500;
 }
 
 /* ── Price Comparison ── */
@@ -898,4 +991,17 @@ tr:hover td {
     margin-top: 8px;
     width: 100%;
     justify-content: center;
+}
+
+/* Section divider inside the alternatives panel */
+.sub-context.alt-section {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 2px solid var(--border);
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 12px;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text);
 }
