@@ -14,8 +14,6 @@ import matcher.matcher as _matcher_module
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
@@ -316,14 +314,6 @@ def get_stores():
     """Return list of available stores from the catalogue."""
     matcher_load()
     return sorted(_matcher_module._catalogue["store"].unique().tolist())
-
-
-# Serve frontend
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-@app.get("/")
-def serve_frontend():
-    return FileResponse("static/index.html")
 
 
 if __name__ == "__main__":
