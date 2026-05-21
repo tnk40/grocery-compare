@@ -3,8 +3,14 @@ FastAPI Backend for UK Grocery Compare
 Handles user authentication and shopping list management
 """
 import os
-import csv
+import sys
 import jwt
+
+# Add project root to path so matcher package is importable
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from matcher.matcher import match as matcher_match, search as matcher_search, find_substitutes as matcher_find_substitutes
+from matcher.matcher import _load as matcher_load
+import matcher.matcher as _matcher_module
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,18 +73,6 @@ class ListItem(Base):
     shopping_list = relationship("ShoppingList", back_populates="items")
 
 
-class Price(Base):
-    __tablename__ = "prices"
-    id = Column(Integer, primary_key=True, index=True)
-    item = Column(String, nullable=False, index=True)
-    category = Column(String, nullable=False)
-    unit = Column(String, nullable=False)
-    store = Column(String, nullable=False, index=True)
-    price_per_unit_gbp = Column(Float, nullable=False)
-    last_updated = Column(DateTime, default=datetime.utcnow)
-    notes = Column(Text)
-
-
 # Create tables
 Base.metadata.create_all(bind=engine)
 
@@ -132,16 +126,37 @@ class ShoppingListResponse(BaseModel):
         from_attributes = True
 
 
-class PriceResponse(BaseModel):
-    item: str
-    category: str
-    unit: str
+class MatchResult(BaseModel):
+    name: str
+    name_clean: str
     store: str
-    price_per_unit_gbp: float
-    last_updated: datetime
-    notes: Optional[str] = None
-    class Config:
-        from_attributes = True
+    price: float
+    price_per_100: Optional[float] = None
+    brand: Optional[str] = None
+    query: Optional[str] = None
+    similarity: float
+    confident: bool
+
+
+class SearchResult(BaseModel):
+    name: str
+    name_clean: Optional[str] = None
+    store: str
+    price: float
+    price_per_100: Optional[float] = None
+    brand: Optional[str] = None
+    query: Optional[str] = None
+
+
+class SubstituteResult(BaseModel):
+    substitute_name: str
+    substitute_store: str
+    substitute_brand: Optional[str] = None
+    substitute_price: float
+    original_price: float
+    saving: float
+    saving_pct: float
+    cosine_similarity: float
 
 
 # Database dependency
@@ -192,39 +207,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# Load prices from CSV on startup
-@app.on_event("startup")
-def load_prices():
-    db = SessionLocal()
-    try:
-        # Check if prices already loaded
-        if db.query(Price).count() > 0:
-            return
-        
-        csv_path = os.path.join(os.path.dirname(__file__), "uk_grocery_prices.csv")
-        if not os.path.exists(csv_path):
-            return
-        
-        with open(csv_path, "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                price = Price(
-                    item=row["item"],
-                    category=row["category"],
-                    unit=row["unit"],
-                    store=row["store"],
-                    price_per_unit_gbp=float(row["price_per_unit_gbp"]),
-                    notes=row.get("notes", "")
-                )
-                db.add(price)
-            db.commit()
-            print(f"Loaded prices from CSV")
-    except Exception as e:
-        print(f"Error loading prices: {e}")
-    finally:
-        db.close()
 
 
 # API Routes
@@ -286,20 +268,54 @@ def delete_list(list_id: int, current_user: User = Depends(get_current_user), db
     db.commit()
 
 
-@app.get("/prices", response_model=List[PriceResponse])
-def get_prices(db: Session = Depends(get_db)):
-    return db.query(Price).all()
+# ── Matcher endpoints ────────────────────────────────────────────────────────
+from fastapi import Query as QueryParam
 
 
-@app.get("/prices/items")
-def get_items(db: Session = Depends(get_db)):
-    results = db.query(Price.item, Price.category, Price.unit).distinct().all()
-    return [{"item": r[0], "category": r[1], "unit": r[2]} for r in results]
+@app.get("/match", response_model=List[MatchResult])
+def match_products(q: str = QueryParam(..., min_length=1), top_k: int = 10):
+    """
+    Smart product matching using the fine-tuned sentence transformer.
+    Returns products sorted by similarity, with a 'confident' flag
+    indicating whether the match exceeds TAU_MATCH (0.85).
+    """
+    results = matcher_match(q, top_k=top_k)
+    return results
 
 
-@app.get("/prices/stores")
-def get_stores(db: Session = Depends(get_db)):
-    return [r[0] for r in db.query(Price.store).distinct().all()]
+@app.get("/search", response_model=List[SearchResult])
+def search_products(
+    q: str = QueryParam(..., min_length=1),
+    store: str = None,
+    top_k: int = 20,
+):
+    """
+    Text search fallback. Case-insensitive substring match on product names.
+    Optionally filter by store.
+    """
+    results = matcher_search(q, store=store, top_k=top_k)
+    return results
+
+
+@app.get("/substitutes", response_model=List[SubstituteResult])
+def get_substitutes(
+    product: str = QueryParam(...),
+    store: str = QueryParam(...),
+    top_k: int = 5,
+):
+    """
+    Find cheaper substitutes for a specific product at a specific store.
+    Returns products in the substitution similarity band that are cheaper.
+    """
+    results = matcher_find_substitutes(product, store, top_k=top_k)
+    return results
+
+
+@app.get("/stores")
+def get_stores():
+    """Return list of available stores from the catalogue."""
+    matcher_load()
+    return sorted(_matcher_module._catalogue["store"].unique().tolist())
 
 
 # Serve frontend

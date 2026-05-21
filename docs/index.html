@@ -1,18 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UK Grocery Compare</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <div id="app">
         <!-- Login Section -->
         <div id="login-section" class="container">
             <h1>🛒 UK Grocery Compare</h1>
             <p class="subtitle">Compare prices across UK supermarkets</p>
-            
+
             <div class="auth-form">
                 <input type="email" id="email" placeholder="Email" />
                 <input type="password" id="password" placeholder="Password" />
@@ -38,13 +40,19 @@
                 <!-- Left: Shopping List Builder -->
                 <div class="panel">
                     <h2>Build Your Shopping List</h2>
-                    
-                    <div class="item-selector">
-                        <select id="item-picker">
-                            <option value="">Select an item...</option>
-                        </select>
-                        <input type="number" id="quantity" value="1" min="1" />
-                        <button onclick="addToBasket()" class="btn btn-primary">Add</button>
+
+                    <div class="search-section">
+                        <div class="search-bar">
+                            <input type="text" id="search-input"
+                                placeholder="Search for a product (e.g. 'orange juice', 'butter', 'milk')..."
+                                onkeypress="if(event.key==='Enter') smartMatch()" />
+                            <input type="number" id="quantity" value="1" min="1" />
+                            <button onclick="smartMatch()" class="btn btn-primary">Match</button>
+                            <button onclick="manualSearch()" class="btn btn-secondary">Search</button>
+                        </div>
+                        <div id="search-results" class="search-results" style="display: none;">
+                            <!-- Results appear here -->
+                        </div>
                     </div>
 
                     <h3>Your Basket</h3>
@@ -59,7 +67,7 @@
                         <tbody id="basket-body">
                         </tbody>
                     </table>
-                    
+
                     <div class="basket-actions">
                         <input type="text" id="list-name" placeholder="List name" />
                         <button onclick="saveList()" class="btn btn-secondary">Save List</button>
@@ -74,7 +82,7 @@
                 <!-- Right: Price Comparison -->
                 <div class="panel">
                     <h2>Price Comparison</h2>
-                    
+
                     <div id="recommendations">
                         <h3>Cheapest Options</h3>
                         <table id="recommendations-table">
@@ -114,4 +122,5 @@
 
     <script src="script.js"></script>
 </body>
+
 </html>
