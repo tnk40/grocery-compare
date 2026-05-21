@@ -1,1 +1,8 @@
 .DS_Store
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.egg-info/
+.python-version
+diagnose_matcher.py

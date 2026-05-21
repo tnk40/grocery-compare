@@ -9,7 +9,7 @@ import jwt
 # Add project root to path so matcher package is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from matcher.matcher import match as matcher_match, search as matcher_search, find_substitutes as matcher_find_substitutes
-from matcher.matcher import _load as matcher_load
+from matcher.matcher import _load as matcher_load, query_words_in_name as matcher_query_words_in_name
 import matcher.matcher as _matcher_module
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -282,19 +282,22 @@ def match_best_product(q: str = QueryParam(..., min_length=1), store: str = None
     if not results:
         return []
 
+    q_lower = q.lower().strip()
+    # Keyword verification: prefer results where all query words appear in name_clean
+    kw_filtered = [r for r in results if matcher_query_words_in_name(q_lower, r['name_clean'])]
+    if kw_filtered:
+        results = kw_filtered
+
     if store:
-        # Return all confident matches at this store, best similarity first
-        store_matches = [r for r in results if r['store'] == store and r['similarity'] >= 0.5]
+        store_matches = [r for r in results if r['store'] == store and r['similarity'] >= 0.65]
         store_matches.sort(key=lambda r: r['similarity'], reverse=True)
         return store_matches[:10]
 
-    # No store filter: best match per store, sorted by similarity
     best_per_store = {}
     for r in sorted(results, key=lambda x: x['similarity'], reverse=True):
         s = r['store']
-        if s not in best_per_store and r['similarity'] >= 0.5:
+        if s not in best_per_store and r['similarity'] >= 0.65:
             best_per_store[s] = r
-
     return list(best_per_store.values())
 
 

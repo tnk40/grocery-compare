@@ -39,52 +39,88 @@ def _load() -> None:
     _embeddings = _embeddings / norms
 
 
+def query_words_in_name(query: str, name: str) -> bool:
+    """Check that every word in the query appears as a substring in the product name."""
+    name_lower = name.lower()
+    return all(word in name_lower for word in query.lower().split())
+
+
 def match(query: str, top_k: int = 5) -> list[dict]:
     """
     Encode a free-text query and return the closest products across all stores.
 
-    Only returns products with cosine similarity >= TAU_SUBSTITUTION.
-    Results are sorted by similarity descending.
+    Strategy:
+    1. If the query exactly matches a 'query' category in the catalogue,
+       search only within that category (eliminates cross-category noise).
+    2. Otherwise fall back to full embedding search with a 0.65 similarity floor.
 
-    Each result dict:
-        name, name_clean, store, price, price_per_100, similarity, confident
-    The 'confident' flag is True when similarity >= TAU_MATCH, indicating the
-    product is essentially an exact cross-store match rather than a near-match.
+    Results are sorted by similarity descending.
     """
     _load()
+    query_lower = query.lower().strip()
     query_clean = strip_store_prefix(query)
-    query_emb   = _model.encode(
+
+    # ── Step 1: query-column category filter ─────────────────────────────────
+    query_matches = _catalogue[_catalogue['query'].str.lower() == query_lower]
+
+    if len(query_matches) >= 3:
+        candidate_indices = query_matches.index.tolist()
+        candidate_embs = _embeddings[candidate_indices]
+        query_emb = _model.encode(
+            [query_clean], normalize_embeddings=True, show_progress_bar=False
+        )[0].astype(np.float32)
+        sims = candidate_embs @ query_emb
+        top_local = np.argsort(sims)[::-1][:top_k]
+
+        results = []
+        for local_idx in top_local:
+            cat_idx = candidate_indices[local_idx]
+            row = _catalogue.iloc[cat_idx]
+            sim = float(sims[local_idx])
+            p100 = row.get("price_per_100")
+            results.append({
+                "name":          row["name"],
+                "name_clean":    row["name_clean"],
+                "store":         row["store"],
+                "price":         float(row["price"]),
+                "price_per_100": float(p100) if pd.notna(p100) else None,
+                "brand":         row.get("brand"),
+                "query":         row.get("query"),
+                "similarity":    round(sim, 4),
+                "confident":     sim >= 0.70,
+            })
+
+        filtered = [r for r in results if query_words_in_name(query_lower, r["name_clean"])]
+        return filtered if filtered else results
+
+    # ── Step 2: full embedding search ────────────────────────────────────────
+    query_emb = _model.encode(
         [query_clean], normalize_embeddings=True, show_progress_bar=False
     )[0].astype(np.float32)
-
-    sims = np.dot(_embeddings, query_emb)   # shape (n_products,)
-
-    # Filter to the substitution band and above
-    mask    = sims >= config.TAU_SUBSTITUTION
-    indices = np.where(mask)[0]
-
-    if len(indices) == 0:
-        return []
-
-    # Sort by similarity descending, take top_k
-    sorted_idx = indices[np.argsort(-sims[indices])][:top_k]
+    sims = np.dot(_embeddings, query_emb)
+    top_indices = np.argsort(sims)[::-1][:top_k]
 
     results = []
-    for i in sorted_idx:
+    for i in top_indices:
         row = _catalogue.iloc[int(i)]
         sim = float(sims[i])
+        if sim < 0.65:
+            continue
         p100 = row.get("price_per_100")
         results.append({
-            "name":        row["name"],
-            "name_clean":  row["name_clean"],
-            "store":       row["store"],
-            "price":       float(row["price"]),
+            "name":          row["name"],
+            "name_clean":    row["name_clean"],
+            "store":         row["store"],
+            "price":         float(row["price"]),
             "price_per_100": float(p100) if pd.notna(p100) else None,
-            "similarity":  round(sim, 4),
-            "confident":   sim >= config.TAU_MATCH,
+            "brand":         row.get("brand"),
+            "query":         row.get("query"),
+            "similarity":    round(sim, 4),
+            "confident":     sim >= 0.75,
         })
 
-    return results
+    filtered = [r for r in results if query_words_in_name(query_lower, r["name_clean"])]
+    return filtered if filtered else results
 
 
 def search(query: str, store: str = None, top_k: int = 20) -> list[dict]:

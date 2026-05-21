@@ -19,7 +19,7 @@ WARMUP_RATIO      = 0.1
 RANDOM_SEED       = 42
 
 # ── Matching thresholds ──────────────────────────────────────────────────────
-TAU_MATCH         = 0.85   # above this = same product (identical across stores)
+TAU_MATCH         = 0.75   # lowered from 0.85 — model hits ~0.75-0.85 for free-text queries
 TAU_SUBSTITUTION  = 0.50   # between TAU_SUBSTITUTION and TAU_MATCH = substitution candidate
 
 # ── Pair generation ──────────────────────────────────────────────────────────
