@@ -183,7 +183,12 @@ async function smartMatch() {
         if (existing) {
             existing.quantity += quantity;
         } else {
-            basket.push({ name_clean: cleanName, query, products, quantity, type: 'matched' });
+            const newItem = { name_clean: cleanName, query, products, quantity, type: 'matched' };
+            // In stick-to-store mode, auto-select the top match as the active product
+            if (stickToStore && preferredStore && products.length > 1) {
+                newItem.selectedProduct = products[0];
+            }
+            basket.push(newItem);
         }
 
         clearSearch();
@@ -316,14 +321,25 @@ async function showMatchAlternatives(basketIndex) {
     panel.classList.add('open');
     overlay.classList.add('open');
 
-    const confident = item.products.filter(p => p.confident || p.similarity >= 0.85);
-    const pool = confident.length ? confident : item.products;
-    const sorted = [...pool].sort((a, b) => a.price - b.price);
+    const allSameStore = item.products.length > 0 &&
+        item.products.every(p => p.store === item.products[0].store);
 
-    // Section 1: same product at each store
+    let sorted;
+    if (allSameStore) {
+        // Same-store mode: show all variants sorted by similarity (best match first)
+        sorted = [...item.products].sort((a, b) => b.similarity - a.similarity);
+    } else {
+        const confident = item.products.filter(p => p.confident || p.similarity >= 0.85);
+        const pool = confident.length ? confident : item.products;
+        sorted = [...pool].sort((a, b) => a.price - b.price);
+    }
+
+    // Section 1: product options
     const storesCtx = document.createElement('p');
     storesCtx.className = 'sub-context';
-    storesCtx.innerHTML = `Same product at other stores`;
+    storesCtx.innerHTML = allSameStore
+        ? `Options at ${formatStoreName(item.products[0].store)}`
+        : `Same product at other stores`;
     content.appendChild(storesCtx);
 
     sorted.forEach(p => {
@@ -498,8 +514,13 @@ function calculatePrices() {
                 cheapestOptions.push({ label: item.name_clean, store: preferredStore, price: 0, uncertain: true });
                 return;
             }
-            const confident = activeProducts.filter(p => p.confident || p.similarity >= 0.85);
-            const pool = confident.length ? confident : activeProducts;
+            // In same-store mode (multiple variants), only count the selected/top product for pricing
+            const allSameStore = activeProducts.every(p => p.store === activeProducts[0].store);
+            const pricingProducts = (allSameStore && activeProducts.length > 1)
+                ? [item.selectedProduct || activeProducts[0]]
+                : activeProducts;
+            const confident = pricingProducts.filter(p => p.confident || p.similarity >= 0.85);
+            const pool = confident.length ? confident : pricingProducts;
             const cheapest = pool.reduce((min, p) => p.price < min.price ? p : min);
             cheapestOptions.push({
                 label: item.name_clean,
@@ -508,8 +529,8 @@ function calculatePrices() {
                 uncertain: !confident.length
             });
 
-            // Per-store: each product in activeProducts is one store's best match
-            activeProducts.forEach(p => {
+            // Per-store: each product in pricingProducts is one store's best match
+            pricingProducts.forEach(p => {
                 if (!storeData[p.store]) storeData[p.store] = { total: 0, items: [], unavailableCount: 0 };
                 const isConfident = p.confident || p.similarity >= 0.85;
                 if (isConfident) {

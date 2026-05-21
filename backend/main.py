@@ -273,28 +273,27 @@ from fastapi import Query as QueryParam
 @app.get("/match-best")
 def match_best_product(q: str = QueryParam(..., min_length=1), store: str = None):
     """
-    Returns the single best match per store for a query.
-    If 'store' is provided, returns only the best match from that store.
-    matcher_match returns results sorted by similarity descending, so the
-    first result seen for each store is already its best match.
-    Includes results with similarity >= 0.5 so all relevant stores appear.
+    Returns the best product match(es) for a query.
+    If 'store' is provided, returns all confident matches from that store
+    sorted by similarity (so the frontend can show variants to pick from).
+    Otherwise returns the single best match per store.
     """
     results = matcher_match(q, top_k=50)
     if not results:
         return []
 
     if store:
-        for r in results:
-            if r['store'] == store and (r.get('confident', False) or r['similarity'] >= 0.5):
-                return [r]
-        return []
+        # Return all confident matches at this store, best similarity first
+        store_matches = [r for r in results if r['store'] == store and r['similarity'] >= 0.5]
+        store_matches.sort(key=lambda r: r['similarity'], reverse=True)
+        return store_matches[:10]
 
+    # No store filter: best match per store, sorted by similarity
     best_per_store = {}
-    for r in results:
+    for r in sorted(results, key=lambda x: x['similarity'], reverse=True):
         s = r['store']
-        if s not in best_per_store:
-            if r.get('confident', False) or r['similarity'] >= 0.5:
-                best_per_store[s] = r
+        if s not in best_per_store and r['similarity'] >= 0.5:
+            best_per_store[s] = r
 
     return list(best_per_store.values())
 
