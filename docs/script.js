@@ -1,5 +1,5 @@
 // API Configuration - Change this to your Railway backend URL
-const API_URL = 'https://backend-production-5565.up.railway.app';
+const API_URL = 'https://grocery-compare-production-394e.up.railway.app';
 
 // State
 let token = localStorage.getItem('token');
