@@ -270,6 +270,36 @@ def delete_list(list_id: int, current_user: User = Depends(get_current_user), db
 from fastapi import Query as QueryParam
 
 
+@app.get("/match-best")
+def match_best_product(q: str = QueryParam(..., min_length=1)):
+    """
+    Find the single best matching product group for a query.
+    Returns one entry per store for the best-matching product, selected by
+    store coverage then average similarity. Used by the Match button.
+    """
+    results = matcher_match(q, top_k=30)
+    if not results:
+        return []
+
+    confident = [r for r in results if r.get('confident', False)]
+    if not confident:
+        confident = results[:5]
+
+    groups = {}
+    for r in confident:
+        key = r['name_clean']
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(r)
+
+    best_key = max(groups.keys(), key=lambda k: (
+        len(groups[k]),
+        sum(r['similarity'] for r in groups[k]) / len(groups[k])
+    ))
+
+    return groups[best_key]
+
+
 @app.get("/match", response_model=List[MatchResult])
 def match_products(q: str = QueryParam(..., min_length=1), top_k: int = 10):
     """
