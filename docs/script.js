@@ -514,13 +514,19 @@ function calculatePrices() {
                 cheapestOptions.push({ label: item.name_clean, store: preferredStore, price: 0, uncertain: true });
                 return;
             }
-            // In same-store mode (multiple variants), only count the selected/top product for pricing
-            const allSameStore = activeProducts.every(p => p.store === activeProducts[0].store);
-            const pricingProducts = (allSameStore && activeProducts.length > 1)
-                ? [item.selectedProduct || activeProducts[0]]
-                : activeProducts;
-            const confident = pricingProducts.filter(p => p.confident || p.similarity >= 0.85);
-            const pool = confident.length ? confident : pricingProducts;
+            // Best product per store: products are sorted by similarity desc, so first seen = best
+            const bestPerStore = {};
+            activeProducts.forEach(p => {
+                if (!bestPerStore[p.store]) bestPerStore[p.store] = p;
+            });
+            // In stick-to-store mode, respect the user's selected variant
+            if (stickToStore && preferredStore && item.selectedProduct) {
+                bestPerStore[preferredStore] = item.selectedProduct;
+            }
+            const storeList = Object.values(bestPerStore);
+
+            const confident = storeList.filter(p => p.confident || p.similarity >= 0.85);
+            const pool = confident.length ? confident : storeList;
             const cheapest = pool.reduce((min, p) => p.price < min.price ? p : min);
             cheapestOptions.push({
                 label: item.name_clean,
@@ -529,8 +535,8 @@ function calculatePrices() {
                 uncertain: !confident.length
             });
 
-            // Per-store: each product in pricingProducts is one store's best match
-            pricingProducts.forEach(p => {
+            // One product per store → add to store total
+            storeList.forEach(p => {
                 if (!storeData[p.store]) storeData[p.store] = { total: 0, items: [], unavailableCount: 0 };
                 const isConfident = p.confident || p.similarity >= 0.85;
                 if (isConfident) {
