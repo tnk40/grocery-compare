@@ -6,8 +6,8 @@ PyJWT==2.8.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.1.2
 python-multipart==0.0.6
-pydantic[email]==2.5.3
-pydantic-settings==2.1.0
+pydantic[email]>=2.7.0
+pydantic-settings>=2.1.0
 pandas>=2.0.0
 sentence-transformers>=2.2.0
 torch>=2.0.0
