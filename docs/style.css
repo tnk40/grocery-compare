@@ -646,6 +646,10 @@ tr:hover td {
     font-weight: 600;
 }
 
+.store-incomplete {
+    opacity: 0.55;
+}
+
 .savings-banner {
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
     color: #fff;

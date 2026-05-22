@@ -442,7 +442,7 @@ function updateSyncStoreOptions() {
         [...stores].sort().map(s => `<option value="${s}"${s === current ? ' selected' : ''}>${formatStoreName(s)}</option>`).join('');
 }
 
-function syncToOneStore(storeOverride) {
+async function syncToOneStore(storeOverride) {
     if (!basket.length) return;
     let targetStore = storeOverride;
     if (!targetStore) {
@@ -450,11 +450,11 @@ function syncToOneStore(storeOverride) {
         targetStore = selectEl ? selectEl.value : '';
     }
     if (!targetStore) {
-        // Auto-detect: store whose cheapest product appears most across basket items
+        // Auto-detect: store with most confident cheapest products across basket
         const storeCounts = {};
         basket.forEach(item => {
             if (item.type !== 'matched') return;
-            const conf = item.products.filter(p => p.confident || p.similarity >= 0.85);
+            const conf = item.products.filter(p => p.confident || p.similarity >= 0.75);
             const pool = conf.length ? conf : item.products;
             if (!pool.length) return;
             const cheapest = pool.reduce((min, p) => p.price < min.price ? p : min);
@@ -465,22 +465,32 @@ function syncToOneStore(storeOverride) {
         if (!targetStore) return;
     }
 
+    const msg = document.getElementById('sync-message');
+    if (msg) msg.textContent = `Syncing to ${formatStoreName(targetStore)}\u2026`;
+
     let synced = 0, skipped = 0;
-    basket.forEach(item => {
-        if (item.type !== 'matched') return;
-        const storeProduct = item.products.find(p => p.store === targetStore);
-        if (storeProduct) {
-            item.selectedProduct = storeProduct;
-            synced++;
-        } else {
+    for (let i = 0; i < basket.length; i++) {
+        const item = basket[i];
+        if (item.type !== 'matched') continue;
+        const query = item.query || item.name_clean;
+        try {
+            const res = await fetch(`${API_URL}/match-best?q=${encodeURIComponent(query)}&store=${encodeURIComponent(targetStore)}`);
+            const products = await res.json();
+            if (products.length > 0) {
+                basket[i].products = products;
+                basket[i].selectedProduct = products[0];
+                synced++;
+            } else {
+                skipped++;
+            }
+        } catch {
             skipped++;
         }
-    });
+    }
 
     renderBasket();
     calculatePrices();
 
-    const msg = document.getElementById('sync-message');
     if (msg) {
         let text = `Synced to ${formatStoreName(targetStore)}`;
         if (skipped) text += ` · ${skipped} item${skipped > 1 ? 's' : ''} unavailable, kept as-is`;
@@ -571,27 +581,36 @@ function calculatePrices() {
             <td>\u00a3${opt.price.toFixed(2)}${opt.uncertain ? ' <span class="unavail-note">(low confidence)</span>' : ''}</td>
         </tr>`).join('');
 
-    // Render store totals with expandable rows
+    // Render store totals — complete stores first (sorted by total), then incomplete
     const totalsBody = document.getElementById('totals-body');
-    const sorted = Object.entries(storeData).sort((a, b) => a[1].total - b[1].total);
+    const sorted = Object.entries(storeData).sort((a, b) => {
+        const aComplete = a[1].unavailableCount === 0;
+        const bComplete = b[1].unavailableCount === 0;
+        if (aComplete !== bComplete) return aComplete ? -1 : 1;
+        return a[1].total - b[1].total;
+    });
     if (!sorted.length) return;
 
-    const cheapestTotal = sorted[0][1].total;
-    const mostExpensive = sorted[sorted.length - 1][1].total;
+    const completeStores = sorted.filter(([, d]) => d.unavailableCount === 0);
+    const cheapestStoreName = completeStores.length > 0 ? completeStores[0][0] : sorted[0][0];
+    const cheapestTotal = completeStores.length > 0 ? completeStores[0][1].total : sorted[0][1].total;
+    const mostExpensive = completeStores.length > 1 ? completeStores[completeStores.length - 1][1].total : cheapestTotal;
 
-    totalsBody.innerHTML = sorted.map(([store, data], i) => {
+    totalsBody.innerHTML = sorted.map(([store, data]) => {
+        const isComplete = data.unavailableCount === 0;
+        const isCheapest = isComplete && store === cheapestStoreName;
         const unavailNote = data.unavailableCount
             ? ` <span class="unavail-note">(${data.unavailableCount} item${data.unavailableCount > 1 ? 's' : ''} unavailable)</span>`
             : '';
         const itemRows = data.items.map(it =>
             `<tr class="store-detail-item">
-                <td class="detail-name">${it.name}</td>
+                <td class="detail-name">${it.name}${it.fallback ? ' <span class="unavail-note">(best guess)</span>' : ''}</td>
                 <td class="detail-price">${it.price !== null ? `\u00a3${it.price.toFixed(2)}${it.qty > 1 ? ` \u00d7${it.qty}` : ''}` : '<em>unavailable</em>'}</td>
             </tr>`
         ).join('');
         return `
-            <tr class="store-total-row${i === 0 ? ' cheapest' : ''}" onclick="toggleStoreDetail('${store}')">
-                <td>${formatStoreName(store)}${i === 0 ? ' <span class="checkmark">\u2713</span>' : ''}${unavailNote}</td>
+            <tr class="store-total-row${isCheapest ? ' cheapest' : ''}${!isComplete ? ' store-incomplete' : ''}" onclick="toggleStoreDetail('${store}')">
+                <td>${formatStoreName(store)}${isCheapest ? ' <span class="checkmark">\u2713</span>' : ''}${unavailNote}</td>
                 <td>\u00a3${data.total.toFixed(2)} <span class="expand-icon">\u25b8</span></td>
             </tr>
             <tr class="store-detail-row" id="store-detail-${store}" style="display:none">
@@ -604,8 +623,8 @@ function calculatePrices() {
     const savings = mostExpensive - cheapestTotal;
     const savingsDiv = document.getElementById('savings');
     const savingsText = document.getElementById('savings-text');
-    if (savings > 0.005) {
-        savingsText.textContent = `You could save \u00a3${savings.toFixed(2)} shopping at ${formatStoreName(sorted[0][0])}!`;
+    if (savings > 0.005 && completeStores.length > 1) {
+        savingsText.textContent = `You could save \u00a3${savings.toFixed(2)} shopping at ${formatStoreName(cheapestStoreName)}!`;
         savingsDiv.style.display = 'block';
     } else {
         savingsText.textContent = '';

@@ -87,7 +87,7 @@ def match(query: str, top_k: int = 5) -> list[dict]:
                 "brand":         row.get("brand"),
                 "query":         row.get("query"),
                 "similarity":    round(sim, 4),
-                "confident":     sim >= 0.70,
+                "confident":     True,
             })
 
         filtered = [r for r in results if query_words_in_name(query_lower, r["name_clean"])]

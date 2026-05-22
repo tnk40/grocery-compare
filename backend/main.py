@@ -278,26 +278,53 @@ def match_best_product(q: str = QueryParam(..., min_length=1), store: str = None
     sorted by similarity (so the frontend can show variants to pick from).
     Otherwise returns the single best match per store.
     """
-    results = matcher_match(q, top_k=50)
+    results = matcher_match(q, top_k=100)
     if not results:
         return []
 
-    q_lower = q.lower().strip()
-    # Keyword verification: prefer results where all query words appear in name_clean
-    kw_filtered = [r for r in results if matcher_query_words_in_name(q_lower, r['name_clean'])]
-    if kw_filtered:
-        results = kw_filtered
+    query_words = q.lower().split()
+
+    def words_in_name(r):
+        name = r.get('name_clean', r['name']).lower()
+        return all(w in name for w in query_words)
 
     if store:
-        store_matches = [r for r in results if r['store'] == store and r['similarity'] >= 0.65]
-        store_matches.sort(key=lambda r: r['similarity'], reverse=True)
-        return store_matches[:10]
+        store_results = [r for r in results if r['store'] == store]
+        # Tier 1: confident matches
+        confident = [r for r in store_results if r['similarity'] >= 0.75]
+        if confident:
+            confident.sort(key=lambda r: r['similarity'], reverse=True)
+            return confident[:10]
+        # Tier 2: keyword fallback
+        keyword_matches = [r for r in store_results if words_in_name(r)]
+        if keyword_matches:
+            keyword_matches.sort(key=lambda r: r['similarity'], reverse=True)
+            for r in keyword_matches:
+                r['fallback'] = True
+            return keyword_matches[:10]
+        return []
+
+    # Multi-store: best match per store using two-tier system
+    matcher_load()
+    all_stores = sorted(_matcher_module._catalogue['store'].unique().tolist())
 
     best_per_store = {}
-    for r in sorted(results, key=lambda x: x['similarity'], reverse=True):
-        s = r['store']
-        if s not in best_per_store and r['similarity'] >= 0.65:
-            best_per_store[s] = r
+    for target_store in all_stores:
+        store_results = [r for r in results if r['store'] == target_store]
+        # Tier 1: confident
+        confident = [r for r in store_results if r['similarity'] >= 0.75]
+        if confident:
+            confident.sort(key=lambda r: r['similarity'], reverse=True)
+            best_per_store[target_store] = confident[0]
+            continue
+        # Tier 2: keyword fallback
+        keyword_matches = [r for r in store_results if words_in_name(r)]
+        if keyword_matches:
+            keyword_matches.sort(key=lambda r: r['similarity'], reverse=True)
+            best = keyword_matches[0].copy()
+            best['fallback'] = True
+            best_per_store[target_store] = best
+
     return list(best_per_store.values())
 
 
